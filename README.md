@@ -1,0 +1,1 @@
+My personal Advent of Code 2022 solutions
