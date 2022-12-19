@@ -14,7 +14,7 @@
 
 use std::collections::VecDeque;
 
-use nalgebra::{point, vector, Point3, Vector3};
+use nalgebra::{vector, Point3, Vector3};
 
 fn main() {
     let drops = std::io::stdin()
