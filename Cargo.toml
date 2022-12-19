@@ -19,5 +19,6 @@ edition = "2021"
 
 [dependencies]
 itertools = "0.10.5"
+nalgebra = "0.31.4"
 nom = "7.1"
 regex = "1.7"
