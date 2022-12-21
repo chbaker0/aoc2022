@@ -27,6 +27,12 @@ fn main() {
     println!("{}", eval(root, &jobs));
 
     let humn = *monkey_ids.get("humn").unwrap();
+
+    let mut cur_expr_id = 0;
+    let mut sub_exprs = HashMap::new();
+    let expr = make_expr(root, humn, &jobs, &mut sub_exprs, &mut cur_expr_id);
+
+    println!("{}", count_var(&expr, &sub_exprs));
 }
 
 fn eval(monkey: MonkeyId, jobs: &HashMap<MonkeyId, Job>) -> Num {
@@ -73,6 +79,16 @@ fn make_expr(
             let right_expr = make_expr(*rhs, humn, jobs, exprs, cur_expr_id);
             exprs.insert(right_id, right_expr);
             Expr::Op(*op, left_id, right_id)
+        }
+    }
+}
+
+fn count_var(expr: &Expr, sub_exprs: &HashMap<ExprId, Expr>) -> u64 {
+    match expr {
+        Expr::Const(_) => 0,
+        Expr::Var => 1,
+        Expr::Op(_, lhs, rhs) => {
+            count_var(sub_exprs.get(lhs).unwrap(), sub_exprs) + count_var(sub_exprs.get(rhs).unwrap(), sub_exprs)
         }
     }
 }
