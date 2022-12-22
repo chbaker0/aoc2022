@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::{hash_map, HashMap};
+use std::collections::{hash_map, HashMap, HashSet};
 
 fn main() {
     let mut monkey_ids = HashMap::new();
@@ -23,45 +23,53 @@ fn main() {
         .collect();
 
     let root = *monkey_ids.get("root").unwrap();
+    let mut cur_expr_id = 0;
+    let mut sub_exprs = HashMap::new();
+    let mut expr = make_expr(root, None, &jobs, &mut sub_exprs, &mut cur_expr_id);
+    reduce(&mut expr, &mut sub_exprs);
+    let p1 = match expr {
+        Expr::Const(n) => n,
+        _ => unreachable!(),
+    };
 
-    println!("{}", eval(root, &jobs));
+    println!("{}", p1);
 
     let humn = *monkey_ids.get("humn").unwrap();
 
     let mut cur_expr_id = 0;
     let mut sub_exprs = HashMap::new();
-    let expr = make_expr(root, humn, &jobs, &mut sub_exprs, &mut cur_expr_id);
-
-    println!("{}", count_var(&expr, &sub_exprs));
-}
-
-fn eval(monkey: MonkeyId, jobs: &HashMap<MonkeyId, Job>) -> Num {
-    let job = jobs.get(&monkey).unwrap();
-
-    match job {
-        Job::Const(n) => *n,
-        Job::Op(op, lhs, rhs) => {
-            let left = eval(*lhs, jobs);
-            let right = eval(*rhs, jobs);
-            use Operation::*;
-            match op {
-                Add => left + right,
-                Sub => left - right,
-                Mul => left * right,
-                Div => left / right,
+    let expr = make_expr(root, Some(humn), &jobs, &mut sub_exprs, &mut cur_expr_id);
+    let (mut humn_side, mut other_side) = match expr {
+        Expr::Op(_, left, right) => {
+            let left = sub_exprs.remove(&left).unwrap();
+            let right = sub_exprs.remove(&right).unwrap();
+            if count_var(&left, &sub_exprs) != 0 {
+                assert_eq!(count_var(&left, &sub_exprs), 1);
+                (left, right)
+            } else {
+                assert_eq!(count_var(&right, &sub_exprs), 1);
+                (right, left)
             }
         }
-    }
+        _ => unreachable!(),
+    };
+
+    reduce(&mut humn_side, &mut sub_exprs);
+    reduce(&mut other_side, &mut sub_exprs);
+    clean([&humn_side, &other_side], &mut sub_exprs);
+    println!("{}", sub_exprs.len());
+
+    // println!("{}", count_var(&expr, &sub_exprs));
 }
 
 fn make_expr(
     monkey: MonkeyId,
-    humn: MonkeyId,
+    humn: Option<MonkeyId>,
     jobs: &HashMap<MonkeyId, Job>,
     exprs: &mut HashMap<ExprId, Expr>,
     cur_expr_id: &mut u64,
 ) -> Expr {
-    if monkey == humn {
+    if Some(monkey) == humn {
         return Expr::Var;
     }
 
@@ -88,10 +96,38 @@ fn count_var(expr: &Expr, sub_exprs: &HashMap<ExprId, Expr>) -> u64 {
         Expr::Const(_) => 0,
         Expr::Var => 1,
         Expr::Op(_, lhs, rhs) => {
-            count_var(sub_exprs.get(lhs).unwrap(), sub_exprs) + count_var(sub_exprs.get(rhs).unwrap(), sub_exprs)
+            count_var(sub_exprs.get(lhs).unwrap(), sub_exprs)
+                + count_var(sub_exprs.get(rhs).unwrap(), sub_exprs)
         }
     }
 }
+
+fn left_balance(
+    var_side: &mut Expr,
+    const_side: &mut Expr,
+    sub_exprs: &mut HashMap<ExprId, Expr>,
+) -> Option<Expr> {
+    let (op, lhs_id, rhs_id) = match var_side {
+        Expr::Const(_) => return Some(var_side.clone()),
+        Expr::Var => return None,
+        Expr::Op(op, lhs_id, rhs_id) => (op, lhs_id, rhs_id),
+    };
+
+    let mut lhs = sub_exprs.remove(lhs_id).unwrap();
+    let mut rhs = sub_exprs.remove(rhs_id).unwrap();
+
+    if let Some(balance) = left_balance(&mut lhs, const_side, sub_exprs) {}
+
+    // if let Some(inverse) = match op {
+    //     Operation::Add => Some(Operation::Sub),
+    //     Operation::Sub => Some(Operation::Add),
+    //     Operation::
+    // }
+
+    unimplemented!()
+}
+
+fn solve(var_side: &mut Expr, const_side: &mut Expr, sub_exprs: &mut HashMap<ExprId, Expr>) {}
 
 fn reduce(expr: &mut Expr, sub_exprs: &mut HashMap<ExprId, Expr>) {
     match expr {
@@ -110,6 +146,31 @@ fn reduce(expr: &mut Expr, sub_exprs: &mut HashMap<ExprId, Expr>) {
             }
             sub_exprs.insert(lhs, left);
             sub_exprs.insert(rhs, right);
+        }
+    }
+}
+
+fn clean<'a>(exprs: impl IntoIterator<Item = &'a Expr>, sub_exprs: &mut HashMap<ExprId, Expr>) {
+    let ids: HashSet<ExprId> = exprs
+        .into_iter()
+        .flat_map(|e| {
+            let mut ids = Vec::new();
+            collect_ids(e, sub_exprs, &mut ids);
+            ids.into_iter()
+        })
+        .collect();
+
+    sub_exprs.retain(|k, v| ids.contains(k));
+
+    fn collect_ids(expr: &Expr, sub_exprs: &HashMap<ExprId, Expr>, ids: &mut Vec<ExprId>) {
+        match expr {
+            Expr::Op(_, left, right) => {
+                ids.push(*left);
+                ids.push(*right);
+                collect_ids(sub_exprs.get(left).unwrap(), sub_exprs, ids);
+                collect_ids(sub_exprs.get(right).unwrap(), sub_exprs, ids);
+            }
+            _ => (),
         }
     }
 }
@@ -230,10 +291,13 @@ impl Operation {
     fn apply(&self, lhs: Num, rhs: Num) -> Num {
         use Operation::*;
         match *self {
-            Add => lhs + rhs,
-            Sub => lhs - rhs,
-            Mul => lhs * rhs,
-            Div => lhs / rhs,
+            Add => lhs.checked_add(rhs).unwrap(),
+            Sub => lhs.checked_sub(rhs).unwrap(),
+            Mul => lhs.checked_mul(rhs).unwrap(),
+            Div => {
+                assert_eq!(lhs.checked_rem(rhs), Some(0), "{lhs} % {rhs}");
+                lhs.checked_div(rhs).unwrap()
+            }
         }
     }
 }
